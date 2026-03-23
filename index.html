@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>بوابة المحكمة العليا الرقمية</title>
+    <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore-compat.js"></script>
+    
+    <style>
+        :root { --gold: #d4af37; --dark: #0a0a0a; --red: #ff3e3e; }
+        body { background: var(--dark); color: white; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; overflow-x: hidden; }
+        
+        /* تأثيرات الخلفية والاختراق */
+        #hackOverlay { display: none; position: fixed; inset: 0; background: rgba(255, 0, 0, 0.15); border: 5px solid var(--red); z-index: 10000; pointer-events: none; animation: pulse 1.5s infinite; }
+        @keyframes pulse { 0% { opacity: 0.5; } 50% { opacity: 1; } 100% { opacity: 0.5; } }
+        #hackText { position: absolute; top: 20px; left: 50%; transform: translateX(-50%); color: var(--red); font-weight: bold; font-size: 24px; text-shadow: 0 0 10px red; }
+
+        header { background: black; padding: 20px; border-bottom: 2px solid var(--gold); text-align: center; box-shadow: 0 4px 15px rgba(212, 175, 55, 0.2); }
+        header h1 { margin: 0; color: var(--gold); letter-spacing: 2px; text-transform: uppercase; }
+
+        .container { max-width: 1000px; margin: 30px auto; padding: 20px; }
+        
+        /* صناديق الإدخال والأزرار */
+        .card { background: #151515; padding: 25px; border-radius: 15px; border: 1px solid #333; margin-bottom: 20px; }
+        input { width: 100%; padding: 12px; margin: 10px 0; background: #222; border: 1px solid #444; color: white; border-radius: 8px; box-sizing: border-box; }
+        input:focus { border-color: var(--gold); outline: none; }
+        
+        button { background: transparent; color: var(--gold); border: 2px solid var(--gold); padding: 10px 25px; border-radius: 8px; cursor: pointer; font-weight: bold; transition: 0.3s; margin: 5px; }
+        button:hover { background: var(--gold); color: black; box-shadow: 0 0 15px var(--gold); }
+        button.danger { border-color: var(--red); color: var(--red); }
+        button.danger:hover { background: var(--red); color: white; box-shadow: 0 0 15px var(--red); }
+
+        /* الجداول */
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; background: #111; border-radius: 10px; overflow: hidden; }
+        th { background: var(--gold); color: black; padding: 15px; }
+        td { padding: 12px; border-bottom: 1px solid #222; text-align: center; }
+        tr:hover { background: #1a1a1a; }
+
+        #nav { display: flex; justify-content: center; flex-wrap: wrap; gap: 10px; margin-bottom: 30px; }
+    </style>
+</head>
+<body>
+
+<div id="hackOverlay"><div id="hackText">⚠️ SYSTEM BREACHED BY GHOST ⚠️</div></div>
+
+<header>
+    <h1>المحكمة العليا - مركز العمليات</h1>
+</header>
+
+<div class="container">
+    <div id="authSection" class="card">
+        <div id="loginBox">
+            <h2>تسجيل الدخول للمنظومة</h2>
+            <input type="text" id="uName" placeholder="اسم المستخدم">
+            <input type="password" id="uPass" placeholder="كلمة المرور">
+            <button onclick="handleLogin()">دخول آمن</button>
+            <button style="border:none" onclick="toggleAuth(true)">إنشاء حساب جديد</button>
+        </div>
+        <div id="regBox" style="display:none">
+            <h2>إنشاء هوية رقمية</h2>
+            <input type="text" id="rName" placeholder="الاسم الكامل">
+            <input type="password" id="rPass" placeholder="كلمة المرور">
+            <button onclick="handleRegister()">اعتماد الحساب</button>
+            <button style="border:none" onclick="toggleAuth(false)">العودة لتسجيل الدخول</button>
+        </div>
+    </div>
+
+    <div id="mainDashboard" style="display:none">
+        <div id="nav">
+            <button onclick="openPanel('cases', 'C-100')">📑 سجل القضايا</button>
+            <button onclick="openPanel('wanted', 'W-200')">🚨 المطلوبين</button>
+            <button onclick="openPanel('budget', 'B-300')">💰 الميزانية</button>
+            <button onclick="openPanel('users', 'U-400')">👥 الموظفين</button>
+            <button class="danger" onclick="handleLogout()">تسجيل خروج</button>
+        </div>
+        <div id="contentArea" class="card">
+            <p style="color: #888;">الرجاء اختيار نافذة من الأعلى للبدء...</p>
+        </div>
+    </div>
+</div>
+
+<script>
+    // --- إعدادات Firebase (ضع بياناتك هنا) ---
+    const firebaseConfig = {
+        apiKey: "YOUR_API_KEY",
+        authDomain: "YOUR_AUTH_DOMAIN",
+        projectId: "YOUR_PROJECT_ID"
+    };
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.firestore();
+
+    // --- نظام الرموز السرية ---
+    const SECRETS = {
+        cases: "c1", wanted: "w1", budget: "b1", users: "u1"
+    };
+
+    let userSession = null;
+
+    // --- مراقبة الاختراق (للجميع) ---
+    db.collection("system").doc("status").onSnapshot(doc => {
+        const status = doc.data();
+        document.getElementById('hackOverlay').style.display = (status && status.isHacked) ? 'block' : 'none';
+    });
+
+    // --- وظائف الدخول ---
+    function toggleAuth(showReg) {
+        document.getElementById('loginBox').style.display = showReg ? 'none' : 'block';
+        document.getElementById('regBox').style.display = showReg ? 'block' : 'none';
+    }
+
+    async function handleLogin() {
+        const n = document.getElementById('uName').value;
+        const p = document.getElementById('uPass').value;
+
+        if(n === "ghost" && p === "rt_hacker") {
+            userSession = { name: "GHOST", role: "Hacker" };
+            await db.collection("system").doc("status").set({ isHacked: true });
+            startSystem();
+            return;
+        }
+
+        const q = await db.collection("users").where("name","==",n).where("pass","==",p).get();
+        if(!q.empty) {
+            userSession = q.docs[0].data();
+            startSystem();
+        } else { alert("بيانات الدخول غير صحيحة!"); }
+    }
+
+    async function handleRegister() {
+        const n = document.getElementById('rName').value;
+        const p = document.getElementById('rPass').value;
+        if(n && p) {
+            await db.collection("users").add({ name: n, pass: p, role: "موظف" });
+            alert("تم الاعتماد، يمكنك الدخول الآن");
+            toggleAuth(false);
+        }
+    }
+
+    function startSystem() {
+        document.getElementById('authSection').style.display = 'none';
+        document.getElementById('mainDashboard').style.display = 'block';
+    }
+
+    async function handleLogout() {
+        if(userSession.role === "Hacker") {
+            await db.collection("system").doc("status").set({ isHacked: false });
+        }
+        location.reload();
+    }
+
+    // --- نظام فتح النوافذ بالرموز ---
+    function openPanel(type, codePrefix) {
+        const pass = prompt(`أدخل رمز الوصول الخاص بالقسم (${type}):`);
+        if(pass === SECRETS[type]) {
+            renderUI(type);
+        } else { alert("وصول مرفوض! الرمز غير صحيح."); }
+    }
+
+    // --- عرض البيانات بشكل فوري (Real-time) ---
+    function renderUI(type) {
+        const area = document.getElementById('contentArea');
+        area.innerHTML = `<h3>تحميل البيانات...</h3>`;
+
+        db.collection(type).onSnapshot(snap => {
+            let html = `<h2>إدارة ${type === 'cases' ? 'القضايا' : type === 'wanted' ? 'المطلوبين' : type === 'budget' ? 'الميزانية' : 'الموظفين'}</h2>`;
+            html += `<button onclick="addItem('${type}')">+ إضافة سجل جديد</button><table><tr>`;
+            
+            // العناوين بناءً على النوع
+            if(type === 'cases') html += `<th>الرقم</th><th>العنوان</th>`;
+            else if(type === 'wanted') html += `<th>الاسم</th><th>التهمة</th>`;
+            else if(type === 'budget') html += `<th>البيان</th><th>المبلغ</th>`;
+            else if(type === 'users') html += `<th>الاسم</th><th>الرتبة</th>`;
+            
+            html += `<th>إجراءات</th></tr>`;
+
+            snap.forEach(doc => {
+                const d = doc.data();
+                html += `<tr>`;
+                if(type === 'cases') html += `<td>${d.num}</td><td>${d.name}</td>`;
+                else if(type === 'wanted') html += `<td>${d.name}</td><td>${d.crime}</td>`;
+                else if(type === 'budget') html += `<td>${d.type}</td><td>${d.val}</td>`;
+                else if(type === 'users') html += `<td>${d.name}</td><td>${d.role}</td>`;
+                
+                html += `<td><button class="danger" onclick="deleteItem('${type}','${doc.id}')">حذف</button></td></tr>`;
+            });
+            html += `</table>`;
+            area.innerHTML = html;
+        });
+    }
+
+    function addItem(type) {
+        if(type === 'cases') {
+            const n = prompt("رقم القضية:"); const t = prompt("عنوانها:");
+            if(n && t) db.collection(type).add({ num: n, name: t });
+        } else if(type === 'wanted') {
+            const n = prompt("اسم المطلوب:"); const c = prompt("الجريمة:");
+            if(n && c) db.collection(type).add({ name: n, crime: c });
+        } else if(type === 'budget') {
+            const t = prompt("البيان:"); const v = prompt("المبلغ:");
+            if(t && v) db.collection(type).add({ type: t, val: v });
+        }
+    }
+
+    function deleteItem(type, id) {
+        if(confirm("هل أنت متأكد من مسح هذا السجل؟")) {
+            db.collection(type).doc(id).delete();
+        }
+    }
+</script>
+
+</body>
+</html>
